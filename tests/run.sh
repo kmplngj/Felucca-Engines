@@ -8,6 +8,10 @@ set -e
 cd "$(dirname "$0")/.."
 mkdir -p build
 python3 tools/gen_engine_tables.py build/fe_tables.h
+sh tests/contract_compile.sh
+${CC:-cc} -O2 -std=c99 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Ibuild \
+    -o build/contract_runtime tests/contract_runtime.c
+build/contract_runtime
 ${CC:-cc} -O2 -std=c99 -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Ibuild \
     -o build/fe_host tests/fe_host.c
 build/fe_host > build/renders.txt

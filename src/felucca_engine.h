@@ -4,11 +4,20 @@
  * descriptors, a voice, its per-block modulation, presets and the engine table entry.
  *
  * The engines are built as one translation unit with their host: the host includes, in this order,
- *   its own definitions (below), this header, the tables, dsp.c, then the eng_*.c files it wants.
+ *   its dimension / API macros, the tables, this header, track_t / trk / P_*, dsp.c, then eng_*.c.
  * Every function is static: nothing here is linked separately.
  *
- * What the host provides (before the first eng_*.c):
+ * Contract v1: FELUCCA_ENGINE_API_VERSION is this header's contract revision, not a firmware release
+ * or a binary ABI version. The host defines FELUCCA_ENGINE_API_REQUIRED as the revision it implements
+ * before including this header. Only an exact match is supported; this is a compile-time handshake.
+ *
+ * What the host provides (before this header):
+ *   FELUCCA_ENGINE_API_REQUIRED  1u
  *   NVOICE, NPART          macros: voices per part, parts (WHEEL keeps NPART x NVOICE voices of its own state)
+ *                          both positive integer constants; capacity and memory limits belong to the host
+ *   FS, CTL                macros: 44100 samples/second, 32 samples/control tick; other rates/block sizes
+ *                          are unsupported (engine coefficients and ramps assume these values)
+ * What the host provides (before the first eng_*.c):
  *   track_t                a typedef of `struct track`, with at least
  *                            int16_t p[];          the part's parameters, indexed by the P_* below
  *                            voice_t v[NVOICE];    its voices
@@ -16,33 +25,70 @@
  *   P_E0 .. P_E7           enum constants: the engine's eight parameters in t->p[] (EDIT 1 / EDIT 2)
  *   P_ATK, P_REL           the amplitude envelope's attack and release (an engine's HOME knobs may name them)
  *   P_FTYPE                ANALOG's filter type: 0 low-pass, 1 band-pass, 2 high-pass (a per-part parameter)
- *   the tables             FS, CTL (32), SINE[1025], PITCH_OCT and pitch_inc(), SVF_G[128], TANH_Q15[257]
+ *   the tables             SINE[1025], PITCH_OCT and pitch_inc(), SVF_G[128], TANH_Q15[257]
  *                          (tools/gen_engine_tables.py writes them as fe_tables.h)
  *
  * What the engines expect of the host's voices (the host's voice allocator and envelope):
  *   - note_on is called as a voice starts (or is retriggered); ph[] and s[] are zero before a voice first
- *     sounds. A retrigger of a sounding voice runs note_on, then puts back ph[0..2] and each s[k] (k = 0, 1,
+ *     sounds (also when assigning a slot to a different engine). A retrigger of a sounding, non-sampled
+ *     voice saves its old state, runs note_on with the new note / age / gate, then puts back ph[0..2] and each s[k] (k = 0, 1,
  *     4..7) whose bit k of engine_t.keep is set; s[2] and s[3] are as note_on left them.
- *   - render adds n samples (n <= CTL; blocks are CTL long) to out[]: add, never overwrite. out[] may alias
- *     the voice's own state.
- *   - vmod_t carries the block's pitch, amplitude ramp (amp0 -> amp1) and the modulated cutoff and shape.
+ *     For sampled engines no phases are restored; keep still applies to s[]. Unset keep slots retain
+ *     note_on's result. The five engines here are non-sampled. The host owns active / gate / stage.
+ *   - render adds n samples (1 <= n <= CTL) to an int32_t accumulator: add, never clear or overwrite.
+ *     The host supplies at least n writable elements, clears a fresh mix, and prevents signed overflow
+ *     while accumulating voices. Output uses dsp.c's VOICE_FS scale (24000 for a full-scale Q15 oscillator
+ *     at unit amplitude), with engine-dependent headroom; it is not clipped to int16_t. Keep output
+ *     separate from track / voice / modulation state: state writeback can overwrite aliased samples.
+ *     Normal blocks are CTL long. A short render still advances block-rate state once and uses the
+ *     CTL-sample ramp; splitting a block into multiple renders is not equivalent to one render.
+ *   - vmod_t carries the block's pitch, amplitude ramp (amp0 -> amp1) and cutoff / shape modulation;
+ *     the units and neutral values are documented below. Parameters stay within descriptor ranges.
  *   - env is the ADSR value in Q24 (1 << 24 = full), stage 0 off, 1 attack, 2 decay / sustain, 3 release,
  *     4 given up (fading out); active is 1 while the voice sounds, gate 1 while its key is held.
  *     LOFI's stepped envelope (its amp hook) reads and ends them; WHEEL reads gate and the other voices
  *     of the part.
  *   - age is a counter the host advances per voice start (a noise seed); note and fine as the host set them.
  *   - amp, desc, block: optional hooks (0 = none), see engine_t.
+ *   - callbacks for one part are serialized by its owner: note_on and parameter / gate changes finish
+ *     before block; block runs once per control tick, even with no active voices, before amp / render.
+ *     amp runs after the host's envelope tick; skip render if amp ended the voice. Different parts may
+ *     run in parallel when each owns its trk element, voices and output buffer. WHEEL's private arrays
+ *     are indexed by part and voice: t must be &trk[part], v must be &t->v[voice], and trk is a contiguous
+ *     array of NPART track_t. No worker may mutate another part or clear WHEEL's arrays during playback.
+ *     This contract does not permit concurrent callbacks within a part or define a thread runtime.
  * The layout of these types is Felucca's: a host keeps it as it is (the field order, the sizes). The file names
  * in the comments below (voice.c, engines.c, mod.c, fx.c, ...) are Felucca's, the host these engines came from. */
 #ifndef FELUCCA_ENGINE_H
 #define FELUCCA_ENGINE_H
 #include <stdint.h>
 
+#define FELUCCA_ENGINE_API_VERSION 1u
+#ifndef FELUCCA_ENGINE_API_REQUIRED
+#error "felucca_engine.h: host must define FELUCCA_ENGINE_API_REQUIRED before including the header"
+#elif FELUCCA_ENGINE_API_REQUIRED != FELUCCA_ENGINE_API_VERSION
+#error "felucca_engine.h: incompatible FELUCCA_ENGINE_API_REQUIRED (supported contract is 1u)"
+#endif
+
 #ifndef NVOICE
 #error "felucca_engine.h: the host defines NVOICE (voices per part) first"
+#elif NVOICE <= 0
+#error "felucca_engine.h: NVOICE must be a positive integer constant"
 #endif
 #ifndef NPART
 #error "felucca_engine.h: the host defines NPART (parts) first"
+#elif NPART <= 0
+#error "felucca_engine.h: NPART must be a positive integer constant"
+#endif
+#ifndef FS
+#error "felucca_engine.h: the host defines FS (sample rate) first"
+#elif FS != 44100
+#error "felucca_engine.h: contract v1 requires FS == 44100"
+#endif
+#ifndef CTL
+#error "felucca_engine.h: the host defines CTL (samples per control tick) first"
+#elif CTL != 32
+#error "felucca_engine.h: contract v1 requires CTL == 32"
 #endif
 
 #ifndef NELEM
@@ -81,12 +127,13 @@ typedef struct {
 } voice_t;
 
 typedef struct {                 /* per-voice control-rate modulation, computed in voice.c */
-    uint32_t inc;                /* phase increment of the base pitch */
-    int32_t pitch16;
-    int32_t amp0, amp1;          /* Q15 ramp over the block */
-    int32_t cutoff;              /* 0..127 << 8 */
-    int32_t shape;               /* 0..127 << 8 */
-    int32_t envq15;              /* env value (for engines that use it as a mod source) */
+    uint32_t inc;                /* phase increment/sample: frequency / FS * 2^32, including fine */
+    int32_t pitch16;             /* MIDI note * 16 (1/16 semitone); table pitch range 0..2047 */
+    int32_t amp0, amp1;          /* Q15 (32768 = 1): sample i uses amp0 + (amp1-amp0)*i/CTL,
+                                 * delta rounded toward zero; amp1 is the next block boundary */
+    int32_t cutoff;              /* signed offset to the engine's cutoff, 256 per table index; 0 neutral */
+    int32_t shape;               /* absolute shape control, 0..127*256; 64*256 neutral */
+    int32_t envq15;              /* Q15 envelope value (32768 = 1), for envelope modulation */
     int32_t fine;                /* the residual below 1/16 semitone in inc: unison detune, TUNE, bend (1/4096) */
 } vmod_t;
 
