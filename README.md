@@ -26,6 +26,7 @@ Shared:
 The engines are compiled as one translation unit with their host, in this order:
 
 ```c
+#define FELUCCA_ENGINE_API_REQUIRED 1u /* host implements contract v1 */
 #define NVOICE 8                    /* voices per part */
 #define NPART 4                     /* parts */
 #include "fe_tables.h"              /* python3 tools/gen_engine_tables.py fe_tables.h */
@@ -39,10 +40,52 @@ static track_t trk[NPART];
 
 Each engine is an `engine_t` (`ENG_ANALOG`, `ENG_LOFI`, `ENG_TRIO`, `ENG_WHEEL`, `ENG_NOISE`):
 its eight parameters with their ranges and names, its presets, and the functions the host calls
-per voice (`note_on`, `render`) and per block (`block`, `amp`). `render` adds one block (at most
+per voice (`note_on`, `render`, optional `amp`) and per part/block (optional `block`). `render` adds one block (at most
 `CTL` = 32 samples) of a voice to a buffer. The header documents the rest of the contract: the
 host's track and parameter numbers, how a voice is started and retriggered, and the envelope
 fields that LOFI and WHEEL read.
+
+### Contract v1
+
+`src/felucca_engine.h` defines `FELUCCA_ENGINE_API_VERSION` as `1u`. Before including it, a host
+must define `FELUCCA_ENGINE_API_REQUIRED` to exactly `1u`, positive integer `NPART` and `NVOICE`,
+and `FS = 44100`, `CTL = 32` (normally supplied by the generated tables). A missing requirement,
+version mismatch, unsupported rate/block size or nonpositive dimension is a compile error.
+The revision describes the source integration contract, not a firmware release or a binary ABI.
+The shared type layouts are unchanged. There is no implied compatibility with a newer revision.
+
+These rate limits describe the existing DSP: the amplitude and WHEEL gain ramps use shifts for
+32 samples, and WHEEL's rotor/fold constants and NOISE's rate coefficients assume 44.1 kHz.
+Changing generated tables alone cannot support another rate. Dimensions have no arbitrary
+upper cap in this library; the host must fit its arrays and mix headroom to its platform.
+
+- Pitch is in 1/16 semitone (`pitch16 = MIDI note * 16`, table range 0..2047); phase increments
+  are `frequency / FS * 2^32` per sample. `fine` is an increment correction in 1/4096 units.
+  Envelope state is Q24 (`1 << 24` = full); amplitude and modulation envelope values are Q15
+  (`32768` = full). `cutoff` is a signed offset, 256 per cutoff table index, with 0 neutral.
+  `shape` is an absolute 0..127*256 control with 64*256 neutral. Engine parameters use the
+  descriptor's range, rather than normalized floats.
+- Render adds to a separate `int32_t` output accumulator. The host clears a fresh mix, provides
+  at least `n` elements and prevents accumulation overflow. The per-voice scale is `VOICE_FS`
+  (24000 at unit oscillator amplitude), with engine-dependent headroom; clipping and output
+  conversion belong to the host. Normal renders use 32 samples; `1 <= n <= 32` is supported.
+  A short call advances block-rate state once and follows the 32-sample amplitude ramp, whose
+  endpoint is the next block boundary. Multiple short calls do not reproduce one full block.
+  Output overlapping engine state is not a usable output buffer: state writeback can overwrite it.
+  This clarifies earlier alias comments: engines read voice state into locals, then write it back
+  after accumulating samples.
+- Zero a slot's phases and engine state before its first start or reassignment to a different
+  engine. For a sounding voice's retrigger, save its state, set the new note/gate/age, call
+  `note_on`, restore all three phases for a non-sampled engine, and restore `s[k]` where bit `k`
+  of `keep` is set, except `s[2]` and `s[3]`, which always retain `note_on`'s result. Sampled
+  engines keep no phases. All five engines here are non-sampled.
+- One owner serializes a part's parameter changes, note/gate events and callbacks. Run `block`
+  once per control tick before its voices, including idle parts; run an optional `amp` after
+  the host's envelope tick and skip render if it ends the voice. Different parts can run in
+  parallel with separate output buffers and exclusive ownership of each part's state. WHEEL
+  indexes private state by `t - trk` and `v - t->v`, so pass actual elements of the contiguous
+  `trk[NPART]` and `t->v[NVOICE]` arrays. Do not clear its arrays while any part is running.
+  Callbacks within one part are not covered by this parallel ownership guarantee.
 
 `tests/fe_host.c` is a complete, minimal host: it plays every preset through a short phrase.
 
@@ -52,9 +95,12 @@ fields that LOFI and WHEEL read.
 sh tests/run.sh
 ```
 
-builds the tables and the host, renders 108 phrases and compares a hash of each with
+checks positive and negative C99 compile fixtures for the host handshake and requirements,
+then verifies additive output, short-buffer bounds, retrigger state and interleaved part ownership.
+It builds the tables and the host, renders 108 phrases and compares a hash of each with
 `tests/golden.txt`. A change of any engine's output fails. Felucca runs the same host with its own
 generated tables, so the two cannot drift apart.
+Set `CC=gcc` or `CC=clang` to select a compiler. Contract fixtures do not change the golden file.
 
 ## In Felucca
 

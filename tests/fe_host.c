@@ -13,6 +13,7 @@
 /* ---------------------------------------------------- the host's part --- */
 #define NVOICE 8
 #define NPART 4
+#define FELUCCA_ENGINE_API_REQUIRED 1u
 #ifdef FE_TABLES_H
 #include FE_TABLES_H
 #else
