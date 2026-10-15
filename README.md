@@ -2,7 +2,8 @@
 
 Five synthesis engines of [Felucca](https://github.com/hugelton/Felucca), with the DSP helpers
 and the tables they share, under the MIT licence. Plain C99, fixed point only (no float, no
-allocation, no library calls), written for a small 32-bit microcontroller at 44.1 kHz.
+allocation, no library calls), written for a small 32-bit microcontroller at 44.1 kHz; the sample
+rate is a build-time choice (32 to 96 kHz, see [Sample rate](#sample-rate)).
 
 | Engine | File | What it is |
 | --- | --- | --- |
@@ -19,7 +20,7 @@ Shared:
 - `src/dsp.c`: oscillators with polyBLEP, the state-variable filter, soft clipping, noise, the
   amplitude ramp (all `static inline`).
 - `tools/gen_engine_tables.py`: the lookup tables (`SINE`, `PITCH_OCT` / `pitch_inc()`, `SVF_G`,
-  `TANH_Q15`, `FS`, `CTL`) as a C header.
+  `TANH_Q15`, `FS`, `CTL`) as a C header, for 44.1 kHz or the rate you give it.
 
 ## Using the engines
 
@@ -49,15 +50,16 @@ fields that LOFI and WHEEL read.
 
 `src/felucca_engine.h` defines `FELUCCA_ENGINE_API_VERSION` as `1u`. Before including it, a host
 must define `FELUCCA_ENGINE_API_REQUIRED` to exactly `1u`, positive integer `NPART` and `NVOICE`,
-and `FS = 44100`, `CTL = 32` (normally supplied by the generated tables). A missing requirement,
+and `FS` in 32000..192000, `CTL = 32` (normally supplied by the generated tables). A missing requirement,
 version mismatch, unsupported rate/block size or nonpositive dimension is a compile error.
 The revision describes the source integration contract, not a firmware release or a binary ABI.
 The shared type layouts are unchanged. There is no implied compatibility with a newer revision.
 
-These rate limits describe the existing DSP: the amplitude and WHEEL gain ramps use shifts for
-32 samples, and WHEEL's rotor/fold constants and NOISE's rate coefficients assume 44.1 kHz.
-Changing generated tables alone cannot support another rate. Dimensions have no arbitrary
-upper cap in this library; the host must fit its arrays and mix headroom to its platform.
+The amplitude and WHEEL gain ramps require 32-sample blocks. Use tables and rate constants
+generated for the chosen `FS`; see [Sample rate](#sample-rate) for support and fixed-point limits.
+Contract v1 retains its shared layouts and 44.1 kHz behavior while accepting upstream's additional
+rates. Dimensions have no arbitrary upper cap in this library; the host must fit its arrays and
+mix headroom to its platform.
 
 - Pitch is in 1/16 semitone (`pitch16 = MIDI note * 16`, table range 0..2047); phase increments
   are `frequency / FS * 2^32` per sample. `fine` is an increment correction in 1/4096 units.
@@ -89,6 +91,25 @@ upper cap in this library; the host must fit its arrays and mix headroom to its 
 
 `tests/fe_host.c` is a complete, minimal host: it plays every preset through a short phrase.
 
+## Sample rate
+
+The rate is chosen when the tables are generated; the default is 44100 Hz (Felucca's):
+
+```sh
+python3 tools/gen_engine_tables.py fe_tables.h               # 44.1 kHz
+python3 tools/gen_engine_tables.py --fs 48000 fe_tables.h    # 48 kHz (32000 .. 192000)
+```
+
+Build the engines with that header as above; nothing else changes. At another rate the header also
+carries the engines' rate constants, and `src/dsp.c` moves what the engines time in samples or blocks
+(sample holds, filter corners, decays, the LOFI arpeggio and vibrato, the WHEEL rotors, the NOISE drift)
+to the new rate at compile time, so there is no cost per sample. `CTL` stays 32 samples. At 44100 the
+header and the output are exactly what they were before the rate became a choice.
+
+32 to 96 kHz is supported; up to 192 kHz builds and plays. The limits of the fixed point (the lowest
+filter cutoffs get coarser at high rates, some corners move by up to half an octave between the octave
+steps, white noise is quieter in the audible band at high rates) are listed in `src/felucca_engine.h`.
+
 ## Tests
 
 ```sh
@@ -96,11 +117,23 @@ sh tests/run.sh
 ```
 
 checks positive and negative C99 compile fixtures for the host handshake and requirements,
-then verifies additive output, short-buffer bounds, retrigger state and interleaved part ownership.
+including generated tables at 32, 44.1, 48, 96 and 192 kHz, then verifies additive output,
+short-buffer bounds, retrigger state and interleaved part ownership at each rate checked.
 It builds the tables and the host, renders 108 phrases and compares a hash of each with
 `tests/golden.txt`. A change of any engine's output fails. Felucca runs the same host with its own
 generated tables, so the two cannot drift apart.
 Set `CC=gcc` or `CC=clang` to select a compiler. Contract fixtures do not change the golden file.
+
+It also sweeps 1,890 ANALOG cases (all waves/filter taps, PWM shapes,
+resonance/drive corners and amplitude ramps) against a frozen pre-fix audio
+hash. When available, ASan/UBSan runs this sweep, and the 108 phrases and `tests/fs_check.c` at
+every rate checked, without exclusions or recovery (the sanitized renders must be the same);
+an unavailable sanitizer compiler/runtime is reported as a skip.
+
+Then the other rates: it checks that `--fs 44100` writes the default header byte for byte, and at
+48 and 96 kHz (`FS_CHECK="32000 88200"` for others) measures the pitch of four engines, the filter
+cutoff and LOFI's tone filter (`tests/fs_check.c`), renders the 108 phrases (each peak near its
+44.1 kHz one).
 
 ## In Felucca
 

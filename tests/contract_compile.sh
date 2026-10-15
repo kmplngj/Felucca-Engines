@@ -5,8 +5,8 @@
 set -e
 
 compile() {
-    ${CC:-cc} -std=c99 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter -Ibuild \
-        "$@" -o build/contract_compile tests/contract_compile.c
+    ${CC:-cc} -std=c99 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
+        "$@" -Ibuild -o build/contract_compile tests/contract_compile.c
 }
 
 good='-DFELUCCA_ENGINE_API_REQUIRED=1u -DNVOICE=8 -DNPART=4 -DFS=44100 -DCTL=32'
@@ -14,6 +14,15 @@ compile $good -DCONTRACT_FULL_HOST
 build/contract_compile
 compile -DFELUCCA_ENGINE_API_REQUIRED=1u -DNVOICE=1 -DNPART=1 -DFS=44100 -DCTL=32 -DCONTRACT_FULL_HOST
 build/contract_compile
+
+# Use real rate-specific tables so these fixtures compile every engine, including the rate constants.
+for fs in 32000 48000 96000 192000; do
+    d=build/contract-fs$fs
+    mkdir -p "$d"
+    python3 tools/gen_engine_tables.py --fs "$fs" "$d/fe_tables.h"
+    compile -DFELUCCA_ENGINE_API_REQUIRED=1u -DNVOICE=8 -DNPART=4 -I"$d" -DCONTRACT_FULL_HOST
+    build/contract_compile
+done
 
 expect_failure() {
     label=$1
@@ -44,9 +53,11 @@ for dim in NPART NVOICE; do
     done
 done
 expect_failure 'missing FS' 'the host defines FS' $good -UFS
-expect_failure 'FS=48000' 'contract v1 requires FS == 44100' $good -UFS -DFS=48000
+for fs in 31999 192001; do
+    expect_failure "FS=$fs" 'FS must be from 32000 to 192000' $good -UFS -DFS=$fs
+done
 expect_failure 'missing CTL' 'the host defines CTL' $good -UCTL
 for ctl in 16 64; do
     expect_failure "CTL=$ctl" 'contract v1 requires CTL == 32' $good -UCTL -DCTL=$ctl
 done
-echo 'ok: contract compile (2 positive, 14 negative fixtures)'
+echo 'ok: contract compile (6 positive, 15 negative fixtures)'

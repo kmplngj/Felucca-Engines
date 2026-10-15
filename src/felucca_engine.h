@@ -15,8 +15,8 @@
  *   FELUCCA_ENGINE_API_REQUIRED  1u
  *   NVOICE, NPART          macros: voices per part, parts (WHEEL keeps NPART x NVOICE voices of its own state)
  *                          both positive integer constants; capacity and memory limits belong to the host
- *   FS, CTL                macros: 44100 samples/second, 32 samples/control tick; other rates/block sizes
- *                          are unsupported (engine coefficients and ramps assume these values)
+ *   FS, CTL                macros: 32000..192000 samples/second, 32 samples/control tick; tables and rate
+ *                          constants must match FS (see the sample-rate limits below)
  * What the host provides (before the first eng_*.c):
  *   track_t                a typedef of `struct track`, with at least
  *                            int16_t p[];          the part's parameters, indexed by the P_* below
@@ -27,6 +27,26 @@
  *   P_FTYPE                ANALOG's filter type: 0 low-pass, 1 band-pass, 2 high-pass (a per-part parameter)
  *   the tables             SINE[1025], PITCH_OCT and pitch_inc(), SVF_G[128], TANH_Q15[257]
  *                          (tools/gen_engine_tables.py writes them as fe_tables.h)
+ *
+ * The sample rate: FS comes from that header, a build-time choice (gen_engine_tables.py --fs RATE fe_tables.h);
+ * 44100 by default (Felucca's). The engines were designed at 44.1 kHz; at another rate the tables are made for it
+ * and what the engines time in samples or blocks (sample holds, one-pole corners, block-rate decays and
+ * smoothers, the LOFI arpeggio / vibrato / sweep, the WHEEL rotors and fold point, the NOISE drift and impulse
+ * rate) is moved to it at compile time (dsp.c, "the rate"; the constants that need more than integer arithmetic
+ * are in the header the generator writes for a rate other than 44100). No cost a sample; at 44100 the output is
+ * bit for bit the same as before the rate was a choice.
+ *   Supported: 32000 .. 96000 (tests/run.sh checks pitch, cutoff and levels at 48 and 96 kHz; FS_CHECK= other
+ *   rates); up to 192000 builds and plays, with the limits below; other rates are refused (below ~26.5 kHz the
+ *   top note, 13.2 kHz, would pass Nyquist).
+ *   CTL stays 32 samples at every rate (a block is shorter in time at higher rates; the engines' block-rate
+ *   times are scaled to it). The host's own control-rate tables (envelopes, LFOs: not in these engines) are the
+ *   host's to make at its rate.
+ *   Limits of the fixed point: SVF_G is Q12, so the lowest cutoffs quantise more as FS rises (worst near 30 Hz:
+ *   ~9 % at 44.1 / 48 kHz, ~18 % at 96 kHz, ~33 % at 192 kHz; above ~250 Hz under 2 % at 96 kHz); cutoffs above
+ *   0.45 FS are held there (at 32 kHz the top of the 16 kHz range). Shifts that set a corner (FE_OCT) move in
+ *   whole octaves, so those corners and times are within ~0.7x .. 1.4x (half an octave) of the 44.1 kHz design
+ *   at rates between the octaves. White-noise sources keep their amplitude a sample, so their level in the
+ *   audible band falls with the rate (~-3.4 dB at 96 kHz).
  *
  * What the engines expect of the host's voices (the host's voice allocator and envelope):
  *   - note_on is called as a voice starts (or is retriggered); ph[] and s[] are zero before a voice first
@@ -82,8 +102,8 @@
 #endif
 #ifndef FS
 #error "felucca_engine.h: the host defines FS (sample rate) first"
-#elif FS != 44100
-#error "felucca_engine.h: contract v1 requires FS == 44100"
+#elif FS < 32000 || FS > 192000
+#error "felucca_engine.h: FS must be from 32000 to 192000"
 #endif
 #ifndef CTL
 #error "felucca_engine.h: the host defines CTL (samples per control tick) first"
