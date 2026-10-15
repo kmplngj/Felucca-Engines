@@ -118,7 +118,7 @@ static __attribute__((noinline)) void analog_render_x(track_t *t, voice_t *v, in
 /* WAVE 0..4 through the filter TYPE ft: analog_render's loop with ft 0 (a constant: LP, the code as it always was),
  * analog_render_f's with BP / HP (its own copy: the LP loop gains nothing) */
 static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t *v, int32_t *out, uint32_t n,
-                                                             const vmod_t *m, uint32_t ft)
+                                                             const vmod_t *m, uint32_t ft, uint32_t single)
 {
     const int16_t *p = t->p;
     uint32_t wave = (uint32_t)p[P_E0], i;
@@ -136,32 +136,39 @@ static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t
     int32_t fk = ft ? ANALOG_K(p[P_E5]) : 0;
     tsvf_coef(&flt, cut, p[P_E5]);
     for (i = 0; i < n; i++) {
-        int32_t a, b, s;
+        int32_t a, b = 0, s;
         switch (wave) {
         case 1:
             a = osc_pulse(ph0, inc1, 0x80000000u);
-            b = osc_pulse(ph1, inc2, 0x80000000u);
+            if (!single)
+                b = osc_pulse(ph1, inc2, 0x80000000u);
             break;
         case 2:
             a = osc_tri(ph0);
-            b = osc_tri(ph1);
+            if (!single)
+                b = osc_tri(ph1);
             break;
         case 3:
             a = osc_sine(ph0);
-            b = osc_sine(ph1);
+            if (!single)
+                b = osc_sine(ph1);
             break;
         case 4:
             a = osc_pulse(ph0, inc1, pw);
-            b = osc_pulse(ph1, inc2, pw);
+            if (!single)
+                b = osc_pulse(ph1, inc2, pw);
             break;
         default:
             a = osc_saw(ph0, inc1);
-            b = osc_saw(ph1, inc2);
+            if (!single)
+                b = osc_saw(ph1, inc2);
             break;
         }
         ph0 += inc1;
         ph1 += inc2;
-        s = mulq15(a, m1) + mulq15(b, m2);
+        s = mulq15(a, m1);
+        if (!single)
+            s += mulq15(b, m2);
         if (nz)
             s += mulq15((int32_t)(noise32(&nst) >> 17) - 16384, nz);
         if (drv)
@@ -186,17 +193,29 @@ static inline __attribute__((always_inline)) void analog_osc(track_t *t, voice_t
 }
 static __attribute__((noinline)) void analog_render_f(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
-    analog_osc(t, v, out, n, m, (uint32_t)t->p[P_FTYPE]);
+    analog_osc(t, v, out, n, m, (uint32_t)t->p[P_FTYPE], 0);
+}
+
+/* A zero mix silences OSC 2 exactly. Specialize both filter variants once per block,
+ * while retaining its phase advance and OSC 1's Q15 gain for later mix changes. */
+static __attribute__((noinline)) void analog_render_1(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
+{
+    if (t->p[P_FTYPE])
+        analog_osc(t, v, out, n, m, (uint32_t)t->p[P_FTYPE], 1);
+    else
+        analog_osc(t, v, out, n, m, 0, 1);
 }
 
 static void analog_render(track_t *t, voice_t *v, int32_t *out, uint32_t n, const vmod_t *m)
 {
     if (t->p[P_E0] >= AW_SYNC)
         analog_render_x(t, v, out, n, m);
+    else if (t->p[P_E2] == 0)
+        analog_render_1(t, v, out, n, m);
     else if (t->p[P_FTYPE])
         analog_render_f(t, v, out, n, m);
     else
-        analog_osc(t, v, out, n, m, 0);
+        analog_osc(t, v, out, n, m, 0, 0);
 }
 
 static const preset_t ANALOG_PRESETS[] = {
