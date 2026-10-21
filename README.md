@@ -138,13 +138,28 @@ cutoff and LOFI's tone filter (`tests/fs_check.c`), renders the 122 phrases (eac
 
 ## In Felucca
 
-Felucca includes this repository as a git submodule (`engines/`, next to its `src/`). Its
-`engines.c` includes `dsp.c` and the six `eng_*.c` files from here, its `core.h` includes
-`felucca_engine.h`, and its table generator imports `tools/gen_engine_tables.py`. The firmware
+Felucca pins a reviewed commit of this repository at `firmware/engines/`. Its current
+pin supplies ANALOG, LOFI, TRIO, WHEEL and NOISE; the six-engine catalog above describes
+this repository's current branch and does not imply firmware adoption of PHASE.
+The firmware's `core.h` includes `felucca_engine.h`, and its table generator imports
+`tools/gen_engine_tables.py`. The firmware
 built from them is GPL-3.0-only as a whole; the files of this repository stay MIT.
 
 Clone Felucca with `git clone --recurse-submodules` (or run `git submodule update --init` in a
 clone): its complete source includes this repository.
+
+### MACRO in the firmware
+
+[MACRO/Braids](https://github.com/kmplngj/Felucca/pull/503) is implemented in Felucca
+as an opt-in `macro` hardware-test profile with 48 models and 51 factory presets. It remains a
+firmware-native integration, outside this collection and the standard firmware
+profile; device qualification is tracked in [Felucca #27](https://github.com/kmplngj/Felucca/issues/27).
+WAVE/FOLD/FBFM retain eight-voice operation; the added models use one voice per part.
+
+The existing wrapper and generators are GPL-3.0-only; Braids/stmlib and the adapted
+DSP retain MIT notices. A future extraction of that combined implementation is
+tracked in [Felucca-Engines-GPL #25](https://github.com/kmplngj/Felucca-Engines-GPL/issues/25).
+This README entry does not add a portable MACRO engine or change a firmware pin.
 
 ## Credits
 
