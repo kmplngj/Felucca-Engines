@@ -13,3 +13,9 @@ int32_t shared_probe(uint32_t phase,int32_t x) {tsvf_t c;int32_t a=0,b=0;tsvf_co
 #include "eng_wave_small.c"
 const engine_t *wave_probe(void){return &ENG_WAVE_SMALL;}
 #endif
+
+#ifdef WAVE_IMPORT_CONTROL
+/* A real unresolved call must still be rejected with canonical probe flags. */
+extern int32_t wave_forbidden_runtime(int32_t x);
+int32_t import_control(int32_t x) { return wave_forbidden_runtime(x); }
+#endif
