@@ -6,6 +6,44 @@ set -eu
 cd "$(dirname "$0")/.."
 mkdir -p build
 python3 -m unittest discover -s tests -p test_wave_tables.py
+# Probe compiler/runtime availability once. A real fixture failure below is fatal.
+wave_san=0
+wave_san_label=skipped
+if [ "${SANITIZE:-1}" = 0 ]; then
+    echo "skip: WAVE S strict ASan/UBSan (SANITIZE=0)"
+else
+    printf 'int main(void){return 0;}\n' > build/wave-san-probe.c
+    if ${CC:-cc} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all \
+        -fno-omit-frame-pointer build/wave-san-probe.c -o build/wave-san-probe \
+        > build/wave-san-probe.log 2>&1 && build/wave-san-probe >> build/wave-san-probe.log 2>&1; then
+        wave_san=1
+        wave_san_label=passed
+    else
+        echo "skip: WAVE S strict ASan/UBSan unavailable (build/wave-san-probe.log)"
+    fi
+fi
+if [ "$wave_san" = 0 ] && [ "${WAVE_REQUIRE_SAN:-0}" = 1 ]; then
+    echo "FAIL: WAVE S strict ASan/UBSan required"; exit 1
+fi
+
+wave_node=${EMSDK_NODE:-node}
+if command -v emcc >/dev/null 2>&1; then
+    emcc --version
+    "$wave_node" --version
+    echo "WAVE S Wasm runtime: $wave_node"
+    # Detect toolchain entrypoint ABI mismatches before the render matrix.
+    emcc -O2 -std=c99 tests/wasm_entry.c -sENVIRONMENT=node -sSINGLE_FILE=1 -o build/wasm-entry.js
+    "$wave_node" build/wasm-entry.js > build/wasm-entry.txt
+    printf 'wasm-main\n' | cmp - build/wasm-entry.txt
+    emcc -O2 -std=c99 -DENTRY_ARGS tests/wasm_entry.c -sENVIRONMENT=node -sSINGLE_FILE=1 -o build/wasm-argv.js
+    wave_status=0
+    "$wave_node" build/wasm-argv.js wasm-argv > build/wasm-argv.txt || wave_status=$?
+    if [ "$wave_status" != 7 ]; then echo "FAIL: Wasm argc/argv main did not return 7"; exit 1; fi
+    printf 'wasm-argv\n' | cmp - build/wasm-argv.txt
+    echo "ok: Wasm main(void), argc/argv main and exit status 7"
+elif [ "${WAVE_REQUIRE_WASM:-0}" = 1 ]; then
+    echo "FAIL: emcc required"; exit 1
+fi
 for fs in 32000 44100 48000 96000 192000; do
     d=build/wave-$fs
     mkdir -p "$d"
@@ -18,19 +56,23 @@ for fs in 32000 44100 48000 96000 192000; do
     ${CC:-cc} -O2 $flags -I"$d" tests/wave_small.c -o "$d/test"
     "$d/test" > "$d/renders.txt"
     if [ "$fs" = 44100 ]; then cmp tests/wave_golden.txt "$d/renders.txt"; fi
-    ${CC:-cc} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
-        $flags -I"$d" tests/wave_small.c -o "$d/test-san"
-    "$d/test-san" > "$d/renders-san.txt"
-    cmp "$d/renders.txt" "$d/renders-san.txt"
+    if [ "$wave_san" = 1 ]; then
+        ${CC:-cc} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
+            $flags -I"$d" tests/wave_small.c -o "$d/test-san"
+        "$d/test-san" > "$d/renders-san.txt"
+        cmp "$d/renders.txt" "$d/renders-san.txt"
+    fi
     ${CC:-cc} -O2 $flags -I"$d" tests/wave_host.c -o "$d/host"
     "$d/host" > "$d/host-renders.txt"
     if [ "$fs" = 44100 ]; then cmp tests/wave_host_golden.txt "$d/host-renders.txt"; fi
-    ${CC:-cc} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
-        $flags -I"$d" tests/wave_host.c -o "$d/host-san"
-    "$d/host-san" > "$d/host-renders-san.txt"
-    cmp "$d/host-renders.txt" "$d/host-renders-san.txt"
+    if [ "$wave_san" = 1 ]; then
+        ${CC:-cc} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
+            $flags -I"$d" tests/wave_host.c -o "$d/host-san"
+        "$d/host-san" > "$d/host-renders-san.txt"
+        cmp "$d/host-renders.txt" "$d/host-renders-san.txt"
+    fi
     python3 tests/wave_quality.py "$d/test" "$d/manifest.json" > "$d/quality.json"
-    echo "ok: WAVE S FS $fs native, strict sanitizers, controls/bounds and 208 independent quality cases"
+    echo "ok: WAVE S FS $fs native, strict sanitizers $wave_san_label, controls/bounds and 208 independent quality cases"
 done
 # A real host/header rate mismatch must fail rather than silently timing slew wrong.
 mkdir -p build/wave-mismatch
@@ -50,10 +92,10 @@ if command -v emcc >/dev/null 2>&1; then
     for fs in 32000 44100 48000 96000 192000; do
         d=build/wave-$fs
         emcc -O2 -std=c99 -I"$d" tests/wave_small.c -sENVIRONMENT=node -sSINGLE_FILE=1 -o "$d/test.js"
-        node "$d/test.js" > "$d/renders-wasm.txt"
+        "$wave_node" "$d/test.js" > "$d/renders-wasm.txt"
         cmp "$d/renders.txt" "$d/renders-wasm.txt"
         emcc -O2 -std=c99 -I"$d" tests/wave_host.c -sENVIRONMENT=node -sSINGLE_FILE=1 -o "$d/host.js"
-        node "$d/host.js" > "$d/host-renders-wasm.txt"
+        "$wave_node" "$d/host.js" > "$d/host-renders-wasm.txt"
         cmp "$d/host-renders.txt" "$d/host-renders-wasm.txt"
     done
     echo "ok: WAVE S Wasm/native deterministic at all five rates"

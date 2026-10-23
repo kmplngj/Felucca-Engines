@@ -166,7 +166,13 @@ bounds, controls, quality-test scope and offline listening instructions.
 bounds, modulation/transitions/reset/retrigger/part ownership, strict sanitizers,
 independent oversampled oscillator quality and exact native/Wasm renders at
 32/44.1/48/96/192 kHz. Wasm is required in its dedicated CI job; local absence is
-reported explicitly. Existing 122 engine goldens stay separate and unchanged.
+reported explicitly. WAVE S honors `SANITIZE=0` and reports unavailable sanitizer
+compiler/runtime support locally; `WAVE_REQUIRE_SAN=1` makes strict sanitizers
+mandatory, as configured for every CI job. A renderer failure after a successful
+probe remains fatal. Wasm CI uses official SDK 6.0.11 at installer commit
+`dd8e25632640cfc1fb570c7fa4cc374e8a5e5a72`, matching Felucca CI, and tests both
+C entrypoint ABIs before comparing renders. Existing 122 engine goldens stay
+separate and unchanged.
 WAVE S is collection-only: firmware registration and adoption remain
 [Felucca #363](https://github.com/kmplngj/Felucca/issues/363), with target/device
 qualification in [#365](https://github.com/kmplngj/Felucca/issues/365).

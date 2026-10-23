@@ -50,6 +50,13 @@ not newly generated tables. The object-section regression also counts all new
 labels, descriptors, presets, pointers and alignment against the 50 KiB total.
 Generate this header only when WAVE S is selected.
 
+The native object probe uses `-Os -std=c99 -ffreestanding -fno-builtin
+-fno-stack-protector` for both the shared baseline and WAVE S: hosted compiler
+stack-protector defaults do not model the bare-metal runtime. All undefined
+imports remain forbidden. The test records host-default imports separately and
+proves rejection with forced stack protection and a genuine unresolved-call
+control; renderer ASan/UBSan checks retain their full instrumentation.
+
 SLEW=0 is the 32-sample control ramp only. 1..127 adds a per-sample one-pole with
 linear time constant 1..200 ms, generated for FS. 32..96 kHz is the quality range;
 96..192 kHz builds under v1 with the shared filter quantization limits.
@@ -128,7 +135,10 @@ Use the reviewed collection revision, Python 3, a C99 compiler, and optionally
 Emscripten plus Node for the cross-architecture gate. From the repository root:
 
 1. Run `sh tests/run.sh`. Expect existing 122 goldens unchanged, asset/content checks,
-   five-rate conformance/strict sanitizers and oscillator quality checks. An absent
+   five-rate conformance, available strict sanitizers and oscillator quality checks.
+   Local `SANITIZE=0` opts out; unavailable sanitizer compiler/runtime support is
+   reported once. `WAVE_REQUIRE_SAN=1` rejects either case and is set for every CI
+   job. A failed real sanitized fixture never becomes an availability skip. An absent
    local Emscripten is an explicit skip; `WAVE_REQUIRE_WASM=1 sh tests/wave_small.sh`
    requires it. No FM-1 is connected or flashed by these commands.
 2. Run `python3 tools/wave_audition.py`. Open build/wave-0-pure.wav through
