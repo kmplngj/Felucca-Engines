@@ -1,6 +1,6 @@
 # Felucca-Engines
 
-Six synthesis engines of [Felucca](https://github.com/hugelton/Felucca), with the DSP helpers
+Seven portable synthesis engines for [Felucca](https://github.com/hugelton/Felucca), with the DSP helpers
 and the tables they share, under the MIT licence. Plain C99, fixed point only (no float, no
 allocation, no library calls), written for a small 32-bit microcontroller at 44.1 kHz; the sample
 rate is a build-time choice (32 to 96 kHz, see [Sample rate](#sample-rate)).
@@ -13,6 +13,7 @@ rate is a build-time choice (32 to 96 kHz, see [Sample rate](#sample-rate)).
 | WHEEL | `src/eng_wheel.c` | A tonewheel-style additive organ: nine drawbar partials, 16 registrations, percussion, key click, drive and a rotary effect |
 | NOISE | `src/eng_noise.c` | White / pink / brown noise, random impulses and shift-register noise through a resonant filter, with drift and a bit crusher |
 | PHASE | `src/eng_phase.c` | Phase distortion: eight waves (bent-phase cosines and windowed resonant sines), a second wave every other cycle, a detuned second line mixed or ring-modulated, a sub oscillator and a sine wavefolder |
+| WAVE S | `src/eng_wave_small.c` | Original four-bank, eight-frame wavetable synthesis with six harmonic levels, phase bend, integer multiplier, root-relative sine sub, low-pass and scan/warp slew; optional generated assets |
 
 Shared:
 
@@ -40,7 +41,7 @@ static track_t trk[NPART];
 #include "eng_analog.c"             /* ... the engines you want */
 ```
 
-Each engine is an `engine_t` (`ENG_ANALOG`, `ENG_LOFI`, `ENG_TRIO`, `ENG_WHEEL`, `ENG_NOISE`, `ENG_PHASE`):
+Each engine is an `engine_t` (`ENG_ANALOG`, `ENG_LOFI`, `ENG_TRIO`, `ENG_WHEEL`, `ENG_NOISE`, `ENG_PHASE`, `ENG_WAVE_SMALL`):
 its eight parameters with their ranges and names, its presets, and the functions the host calls
 per voice (`note_on`, `render`, optional `amp`) and per part/block (optional `block`). `render` adds one block (at most
 `CTL` = 32 samples) of a voice to a buffer. The header documents the rest of the contract: the
@@ -81,7 +82,7 @@ mix headroom to its platform.
   engine. For a sounding voice's retrigger, save its state, set the new note/gate/age, call
   `note_on`, restore all three phases for a non-sampled engine, and restore `s[k]` where bit `k`
   of `keep` is set, except `s[2]` and `s[3]`, which always retain `note_on`'s result. Sampled
-  engines keep no phases. All six engines here are non-sampled.
+  engines keep no phases. All seven engines here are non-sampled.
 - One owner serializes a part's parameter changes, note/gate events and callbacks. Run `block`
   once per control tick before its voices, including idle parts; run an optional `amp` after
   the host's envelope tick and skip render if it ends the voice. Different parts can run in
@@ -136,11 +137,45 @@ Then the other rates: it checks that `--fs 44100` writes the default header byte
 cutoff and LOFI's tone filter (`tests/fs_check.c`), renders the 122 phrases (each peak near its
 44.1 kHz one).
 
+### Original WAVE S
+
+Generate its immutable assets only when selecting this engine:
+
+```sh
+python3 tools/gen_wave_tables.py --fs 44100 build/fe_wave_tables.h --manifest build/wave-manifest.json
+# Add build/ to include paths; include src/eng_wave_small.c after dsp.c.
+sh tests/wave_small.sh
+python3 tools/wave_audition.py
+```
+
+WAVE S adds eight original presets and BANK/SCAN/WARP/MULT/CUT/RES/SUB/SLEW controls.
+SCAN spans eight aligned frames without wrapping. WARP is zero-bypass monotonic phase
+bend; MULT changes the main frequency while SUB stays at half the root frequency.
+SUB's maximum raw weight is half the main source (the mix is normalized).
+SLEW=0 uses a 32-sample scan/warp ramp; 1..127 adds a 1..200 ms time constant.
+Warp depth tapers above 0.10 FS to zero at 0.20 FS; main output fades between
+0.40 FS and 0.45 FS, with phase continuing and SUB qualified independently.
+
+The original MIT recipes and generator use no donor waveform/sample data.
+The 128+guard samples at six levels occupy 49,536 bytes, plus 512 bytes of
+rate-specific slew coefficients. There is no private mutable cache or shared ABI
+change. See [the contract and source inventory](docs/wave-small.md) for units,
+bounds, controls, quality-test scope and offline listening instructions.
+
+`tests/wave_small.sh` separately checks assets, malformed recipes, all 1..32-sample
+bounds, modulation/transitions/reset/retrigger/part ownership, strict sanitizers,
+independent oversampled oscillator quality and exact native/Wasm renders at
+32/44.1/48/96/192 kHz. Wasm is required in its dedicated CI job; local absence is
+reported explicitly. Existing 122 engine goldens stay separate and unchanged.
+WAVE S is collection-only: firmware registration and adoption remain
+[Felucca #363](https://github.com/kmplngj/Felucca/issues/363), with target/device
+qualification in [#365](https://github.com/kmplngj/Felucca/issues/365).
+
 ## In Felucca
 
 Felucca pins a reviewed commit of this repository at `firmware/engines/`. Its current
-pin supplies ANALOG, LOFI, TRIO, WHEEL and NOISE; the six-engine catalog above describes
-this repository's current branch and does not imply firmware adoption of PHASE.
+pin supplies ANALOG, LOFI, TRIO, WHEEL and NOISE; the seven-engine catalog above describes
+this repository's current branch and does not imply firmware adoption of PHASE or WAVE S.
 The firmware's `core.h` includes `felucca_engine.h`, and its table generator imports
 `tools/gen_engine_tables.py`. The firmware
 built from them is GPL-3.0-only as a whole; the files of this repository stay MIT.
