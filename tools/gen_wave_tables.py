@@ -18,6 +18,8 @@ def rounded(x):
 
 
 def validate(recipe):
+    if not isinstance(recipe, dict):
+        raise ValueError("recipe must be an object")
     if (
         set(recipe) != {"schema", "license", "authorship", "banks"}
         or type(recipe["schema"]) is not int
@@ -28,6 +30,8 @@ def validate(recipe):
     if not isinstance(recipe["banks"], list) or len(recipe["banks"]) != 4:
         raise ValueError("expected four banks")
     for b, bank in enumerate(recipe["banks"]):
+        if not isinstance(bank, dict):
+            raise ValueError(f"bank {b} must be an object")
         if (
             set(bank) != {"id", "name", "frames"}
             or type(bank["id"]) is not int
@@ -35,9 +39,15 @@ def validate(recipe):
             or bank["name"] != ("HARM", "HOLLOW", "FORMANT", "GLASS")[b]
         ):
             raise ValueError("bank IDs/order/names are a stable contract")
+        if not isinstance(bank["frames"], list):
+            raise ValueError(f"bank {b} frames must be an array")
         if len(bank["frames"]) != 8:
             raise ValueError("expected eight frames")
         for f, frame in enumerate(bank["frames"]):
+            if not isinstance(frame, dict):
+                raise ValueError(f"bank {b} frame {f} must be an object")
+            if not isinstance(frame.get("partials"), list):
+                raise ValueError(f"bank {b} frame {f} partials must be an array")
             if (
                 set(frame) != {"id", "partials"}
                 or type(frame["id"]) is not int
@@ -47,6 +57,8 @@ def validate(recipe):
                 raise ValueError("invalid frame ID or empty partials")
             seen = set()
             for part in frame["partials"]:
+                if not isinstance(part, dict):
+                    raise ValueError(f"bank {b} frame {f} partial must be an object")
                 if set(part) != {"harmonic", "amplitude", "phase128"} or any(
                     type(v) is not int for v in part.values()
                 ):

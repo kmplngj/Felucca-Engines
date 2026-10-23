@@ -123,6 +123,46 @@ class Tables(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn(b"error:", r.stderr)
 
+    def test_invalid_container_shapes(self):
+        cases = [(None, "recipe"), (42, "recipe")]
+        for value in (None, 42):
+            for field in ("banks", "bank", "frames", "frame", "partials", "partial"):
+                recipe = copy.deepcopy(self.recipe)
+                if field == "banks":
+                    recipe["banks"] = value
+                elif field == "bank":
+                    recipe["banks"][0] = value
+                elif field == "frames":
+                    recipe["banks"][0]["frames"] = value
+                elif field == "frame":
+                    recipe["banks"][0]["frames"][0] = value
+                elif field == "partials":
+                    recipe["banks"][0]["frames"][0]["partials"] = value
+                else:
+                    recipe["banks"][0]["frames"][0]["partials"][0] = value
+                cases.append((recipe, field))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad-shape.json"
+            for recipe, field in cases:
+                with self.subTest(field=field, recipe=recipe):
+                    with self.assertRaisesRegex(ValueError, field):
+                        g.generate(recipe)
+                    path.write_text(json.dumps(recipe))
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            g.__file__,
+                            str(Path(directory) / "out.h"),
+                            "--recipes",
+                            str(path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(field, result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+
     def test_invalid(self):
         for mutate in (
             lambda r: r.update(schema=2),
