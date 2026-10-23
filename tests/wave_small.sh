@@ -55,12 +55,14 @@ for fs in 32000 44100 48000 96000 192000; do
     "$d/contract"
     ${CC:-cc} -O2 $flags -I"$d" tests/wave_small.c -o "$d/test"
     "$d/test" > "$d/renders.txt"
+    python3 tests/wave_cli.py "$fs" "$d/test"
     if [ "$fs" = 44100 ]; then cmp tests/wave_golden.txt "$d/renders.txt"; fi
     if [ "$wave_san" = 1 ]; then
         ${CC:-cc} -O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
             $flags -I"$d" tests/wave_small.c -o "$d/test-san"
         "$d/test-san" > "$d/renders-san.txt"
         cmp "$d/renders.txt" "$d/renders-san.txt"
+        python3 tests/wave_cli.py "$fs" "$d/test-san"
     fi
     ${CC:-cc} -O2 $flags -I"$d" tests/wave_host.c -o "$d/host"
     "$d/host" > "$d/host-renders.txt"
@@ -91,8 +93,10 @@ echo "ok: WAVE S rejects sample-rate mismatched assets"
 if command -v emcc >/dev/null 2>&1; then
     for fs in 32000 44100 48000 96000 192000; do
         d=build/wave-$fs
-        emcc -O2 -std=c99 -I"$d" tests/wave_small.c -sENVIRONMENT=node -sSINGLE_FILE=1 -o "$d/test.js"
+        emcc -O2 -std=c99 -I"$d" tests/wave_small.c -sENVIRONMENT=node -sSINGLE_FILE=1 \
+            --pre-js tests/wave_stdout.js -o "$d/test.js"
         "$wave_node" "$d/test.js" > "$d/renders-wasm.txt"
+        python3 tests/wave_cli.py "$fs" "$wave_node" "$d/test.js"
         cmp "$d/renders.txt" "$d/renders-wasm.txt"
         emcc -O2 -std=c99 -I"$d" tests/wave_host.c -sENVIRONMENT=node -sSINGLE_FILE=1 -o "$d/host.js"
         "$wave_node" "$d/host.js" > "$d/host-renders-wasm.txt"

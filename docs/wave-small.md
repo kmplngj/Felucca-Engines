@@ -129,6 +129,23 @@ including its real note-on/retrigger/release-envelope path. Generated
 headers, manifests, WAVs and logs stay under ignored build/; immutable headers are
 reproducible inputs, not runtime files. Existing shared sources keep their notices.
 
+The test harness's raw CLI takes `BANK SCAN WARP MULT INC BLOCKS [osc]`.
+`BLOCKS` is ASCII decimal 0..4294967295, with an optional leading `+`; negative
+prefixes, whitespace, trailing characters and overflow are rejected before
+initialization or output. Zero emits no bytes; one emits 128 bytes (32 native-endian signed samples; the
+current native/Wasm gate uses little-endian hosts). Writes and
+final flushing are checked. This validates the count argument, not arbitrary
+out-of-range values in the other test-only arguments.
+
+`tests/wave_cli.py` runs both CLI forms with zero/one payloads, invalid counts and
+forced write failures. Original native one-block hashes are frozen separately in
+`tests/wave_cli_golden.json` from `d5a0370`. Each failure control limits files to
+4096 B, disables core dumps and has a five-second timeout. The Node Wasm harness
+uses `tests/wave_stdout.js` as a byte callback because Emscripten's default text TTY
+filters NUL/decodes UTF-8. No global runtime/export setting changes. Earlier
+native/Wasm comparisons covered textual render hashes; raw CLI byte equality is
+new coverage, not a claim about an already-qualified binary path.
+
 ## Offline user audition
 
 Use the reviewed collection revision, Python 3, a C99 compiler, and optionally

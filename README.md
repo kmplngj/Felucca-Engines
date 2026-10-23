@@ -171,8 +171,11 @@ compiler/runtime support locally; `WAVE_REQUIRE_SAN=1` makes strict sanitizers
 mandatory, as configured for every CI job. A renderer failure after a successful
 probe remains fatal. Wasm CI uses official SDK 6.0.11 at installer commit
 `dd8e25632640cfc1fb570c7fa4cc374e8a5e5a72`, matching Felucca CI, and tests both
-C entrypoint ABIs before comparing renders. Existing 122 engine goldens stay
-separate and unchanged.
+C entrypoint ABIs before comparing renders. The render harness rejects invalid
+block counts before output and checks raw zero/one-block payloads in native,
+sanitized and Wasm processes with bounded failure controls. Its Node-only byte
+stdout callback preserves binary data; ordinary textual hash comparisons remain.
+Existing 122 engine goldens stay separate and unchanged.
 WAVE S is collection-only: firmware registration and adoption remain
 [Felucca #363](https://github.com/kmplngj/Felucca/issues/363), with target/device
 qualification in [#365](https://github.com/kmplngj/Felucca/issues/365).

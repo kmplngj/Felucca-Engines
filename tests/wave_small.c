@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -273,13 +274,32 @@ static void renders(int audition)
     if (wav)
         fclose(wav);
 }
+/* Parse once before initialization/output; strtoul alone accepts negative values. */
+static int block_count(const char *arg, uint32_t *count)
+{
+    const char *digits = arg + (arg[0] == '+');
+    char *end;
+    unsigned long value;
+    if (*digits < '0' || *digits > '9')
+        return 0;
+    errno = 0;
+    value = strtoul(arg, &end, 10);
+    if (errno || *end || value > UINT32_MAX)
+        return 0;
+    *count = (uint32_t)value;
+    return 1;
+}
 int main(int argc, char **argv)
 {
     if (argc == 7 || argc == 8) {
-        uint32_t b;
+        uint32_t b, blocks;
         track_t *t = &trk[0];
         vmod_t m;
         int32_t out[32];
+        if (!block_count(argv[6], &blocks)) {
+            fprintf(stderr, "invalid block count: expected 0..4294967295\n");
+            return 2;
+        }
         init(t, 0);
         t->p[P_E0] = (int16_t)atoi(argv[1]);
         t->p[P_E1] = (int16_t)atoi(argv[2]);
@@ -287,7 +307,7 @@ int main(int argc, char **argv)
         t->p[P_E3] = (int16_t)atoi(argv[4]);
         ws_note_on(t, &t->v[0]);
         m = mod((uint32_t)strtoul(argv[5], 0, 10));
-        for (b = 0; b < (uint32_t)atoi(argv[6]); b++) {
+        for (b = 0; b < blocks; b++) {
             memset(out, 0, sizeof out);
             if (argc == 8) {
                 uint32_t j;
@@ -303,7 +323,14 @@ int main(int argc, char **argv)
                 }
             } else
                 ws_render(t, &t->v[0], out, 32, &m);
-            fwrite(out, sizeof *out, 32, stdout);
+            if (fwrite(out, sizeof *out, 32, stdout) != 32) {
+                fprintf(stderr, "render output write failed\n");
+                return 3;
+            }
+        }
+        if (fflush(stdout)) {
+            fprintf(stderr, "render output flush failed\n");
+            return 3;
         }
         return 0;
     }
@@ -311,5 +338,5 @@ int main(int argc, char **argv)
     contracts();
     controls();
     renders(argc > 1);
-    return 0;
+    return fflush(stdout) ? 3 : 0;
 }
