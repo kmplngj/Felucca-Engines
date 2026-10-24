@@ -1,0 +1,8 @@
+wave/0 a1c874a291cd1c03 PURE
+wave/1 e1838c91c89d1ba3 BRIGHT
+wave/2 7afd9214cd476af3 DRIFT
+wave/3 b991c7af48f17e88 HOLLOW
+wave/4 5f1bd9717db78edf NOTCH
+wave/5 919b9dd42668a0aa VOWEL
+wave/6 1b8ca719eba14e0f GLASS
+wave/7 5b9771be194b003f ROOT

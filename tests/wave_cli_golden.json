@@ -1,0 +1,32 @@
+{
+  "baseline": "d5a03701ed557ad12741bd39cf022a8943623681",
+  "command_args": [
+    "1",
+    "63",
+    "-17",
+    "2",
+    "12345678"
+  ],
+  "one_block_sha256": {
+    "32000": {
+      "render": "ba659a4b19a8fe6477054515acde4b05dfd535320fd45015afcf4720fd5a3ebd",
+      "oscillator": "3112823b78e9fbbf291c7fc43dbae9337cc5b7c93bd17ba6cc7f333959a97d16"
+    },
+    "44100": {
+      "render": "178320cc59301d838377c6af10d88cc8331b1b635ff972d09a0317216200d80a",
+      "oscillator": "3112823b78e9fbbf291c7fc43dbae9337cc5b7c93bd17ba6cc7f333959a97d16"
+    },
+    "48000": {
+      "render": "7e6d33c63bf9ed7a6d9b97d19043bc66f75d50bf14f47d53213d6146dad3bdfe",
+      "oscillator": "3112823b78e9fbbf291c7fc43dbae9337cc5b7c93bd17ba6cc7f333959a97d16"
+    },
+    "96000": {
+      "render": "fd609ef9a2f0db6e8920b6d5901bf2778acfa0338ec037ba920ae6f50855f350",
+      "oscillator": "3112823b78e9fbbf291c7fc43dbae9337cc5b7c93bd17ba6cc7f333959a97d16"
+    },
+    "192000": {
+      "render": "468a598868c7a42edd956cef12e3f1e21d57c2d98623dd7fe4721375d67666f6",
+      "oscillator": "3112823b78e9fbbf291c7fc43dbae9337cc5b7c93bd17ba6cc7f333959a97d16"
+    }
+  }
+}
