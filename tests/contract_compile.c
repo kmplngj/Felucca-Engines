@@ -29,6 +29,9 @@ typedef char state_slots[sizeof trk[0].v[0].s / sizeof(int32_t) == 8 ? 1 : -1];
 #include "../src/eng_trio.c"
 #include "../src/eng_wheel.c"
 #include "../src/eng_noise.c"
+#ifdef CONTRACT_WAVE
+#include "../src/eng_wave_small.c"
+#endif
 #endif
 
 int main(void)
@@ -36,6 +39,9 @@ int main(void)
 #ifdef CONTRACT_FULL_HOST
     const engine_t *engines[] = {&ENG_ANALOG, &ENG_LOFI, &ENG_TRIO, &ENG_WHEEL, &ENG_NOISE};
     uint32_t i;
+#ifdef CONTRACT_WAVE
+    if (!ENG_WAVE_SMALL.note_on || !ENG_WAVE_SMALL.render) return 1;
+#endif
     for (i = 0; i < NELEM(engines); i++)
         if (!engines[i]->note_on || !engines[i]->render)
             return 1;

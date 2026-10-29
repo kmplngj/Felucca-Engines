@@ -111,3 +111,6 @@ PY
         echo "skip: strict ASan/UBSan at FS $fs (SANITIZE=0 or unavailable)"
     fi
 done
+
+# Optional original WAVE S has separate goldens; existing engines remain unchanged.
+sh tests/wave_small.sh

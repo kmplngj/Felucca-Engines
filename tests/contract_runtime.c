@@ -204,6 +204,7 @@ static int part_ownership(const engine_t *e)
     return 0;
 }
 
+#ifndef CONTRACT_NO_MAIN
 int main(void)
 {
     uint32_t k;
@@ -221,3 +222,5 @@ int main(void)
     puts("ok: contract runtime (additive output, bounds, retrigger, part ownership)");
     return 0;
 }
+
+#endif /* CONTRACT_NO_MAIN */
